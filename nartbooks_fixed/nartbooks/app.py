@@ -8,6 +8,9 @@ from email.mime.text import MIMEText
 import os
 import random
 import string
+import jwt
+from datetime import datetime, timedelta
+from enum import Enum
 
 # -----------------------------
 # Настройки приложения и базы данных
@@ -18,6 +21,13 @@ DATABASE_URL = "sqlite:///./nartbooks.db"
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 Base = declarative_base()
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+# -----------------------------
+# Enum для ролей пользователей
+# -----------------------------
+class UserRole(str, Enum):
+    USER = "user"
+    ADMIN = "admin"
 
 # -----------------------------
 # Модели базы данных
@@ -31,6 +41,7 @@ class User(Base):
     email = Column(String, unique=True, index=True, nullable=False)
     phone = Column(String, nullable=True)
     birth_date = Column(String, nullable=True)
+    role = Column(String, nullable=False, default=UserRole.USER)  # Роль пользователя
     fav_authors = Column(Text)
     fav_genres = Column(Text)
     fav_books = Column(Text)
@@ -53,6 +64,16 @@ class AuthCode(Base):
     code = Column(String, nullable=False)
     created_at = Column(String, nullable=False)  # timestamp
     is_used = Column(Integer, default=0)  # 0 - не использован, 1 - использован
+
+class AuthToken(Base):
+    __tablename__ = "auth_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    token = Column(String, nullable=False, unique=True, index=True)
+    created_at = Column(String, nullable=False)  # timestamp
+    expires_at = Column(String, nullable=False)  # timestamp
+    is_active = Column(Integer, default=1)  # 1 - активен, 0 - неактивен
 
 Base.metadata.create_all(bind=engine)
 
@@ -87,17 +108,79 @@ def get_db():
         db.close()
 
 # -----------------------------
-# Настройки администратора
+# Настройки JWT и администратора
 # -----------------------------
+JWT_SECRET_KEY = "your-secret-key-here"  # ⚠️ В продакшене используйте более безопасный ключ
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRATION_HOURS = 24  # Токен действителен 24 часа
+
 ADMIN_TOKEN = "my_secret_token"
 
 def require_admin(x_admin_token: Optional[str] = Header(None)):
     if x_admin_token != ADMIN_TOKEN:
         raise HTTPException(status_code=401, detail="Недостаточно прав")
 
+def get_current_user(authorization: Optional[str] = Header(None), db: Session = Depends(get_db)):
+    """Зависимость для получения текущего пользователя по JWT токену"""
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Токен авторизации не предоставлен")
+    
+    try:
+        # Извлекаем токен из заголовка "Bearer <token>"
+        scheme, token = authorization.split()
+        if scheme.lower() != "bearer":
+            raise HTTPException(status_code=401, detail="Неверная схема авторизации")
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Неверный формат токена")
+    
+    # Проверяем токен
+    payload = verify_token(token)
+    user_id = payload.get("user_id")
+    
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Неверный токен")
+    
+    # Проверяем, что пользователь существует
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="Пользователь не найден")
+    
+    return user
+
+def require_admin_role(current_user: User = Depends(get_current_user)):
+    """Зависимость для проверки роли администратора"""
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Недостаточно прав. Требуется роль администратора")
+    return current_user
+
 def generate_verification_code():
     """Генерирует 6-значный код подтверждения"""
     return ''.join(random.choices(string.digits, k=6))
+
+def create_access_token(user_id: int, user_role: str = UserRole.USER) -> str:
+    """Создает JWT токен для пользователя"""
+    now = datetime.now()
+    expire = now + timedelta(hours=JWT_EXPIRATION_HOURS)
+    
+    payload = {
+        "user_id": user_id,
+        "role": user_role,
+        "iat": now,
+        "exp": expire
+    }
+    
+    token = jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+    return token
+
+def verify_token(token: str) -> dict:
+    """Проверяет JWT токен и возвращает payload"""
+    try:
+        payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+        return payload
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Токен истек")
+    except jwt.JWTError:
+        raise HTTPException(status_code=401, detail="Неверный токен")
 
 def cleanup_old_codes(db: Session):
     """Удаляет старые коды (старше 1 часа)"""
@@ -131,7 +214,7 @@ class AuthVerify(BaseModel):
     phone: Optional[str] = None
     code: str
 
-@app.post("/auth/send-code")
+@app.post("/auth/send-code", tags=["Авторизация"])
 def send_auth_code(req: AuthRequest, db: Session = Depends(get_db)):
     """Отправка одноразового кода (OTP)"""
     identifier = req.email or req.phone
@@ -173,7 +256,7 @@ def send_auth_code(req: AuthRequest, db: Session = Depends(get_db)):
     last_sent[identifier] = datetime.now()
     return {"message": "Код отправлен успешно"}
 
-@app.post("/auth/verify-code")
+@app.post("/auth/verify-code", tags=["Авторизация"])
 def verify_auth_code(req: AuthVerify, db: Session = Depends(get_db)):
     """Проверка кода и создание пользователя, если он новый"""
     identifier = req.email or req.phone
@@ -220,16 +303,39 @@ def verify_auth_code(req: AuthVerify, db: Session = Depends(get_db)):
         db.commit()
         db.refresh(user)
 
-    return {"message": "Авторизация успешна", "user_id": user.id}
+    # Создаем JWT токен с ролью пользователя
+    access_token = create_access_token(user.id, user.role)
+    
+    # Сохраняем токен в базе данных
+    now = datetime.now()
+    expires_at = now + timedelta(hours=JWT_EXPIRATION_HOURS)
+    
+    auth_token = AuthToken(
+        user_id=user.id,
+        token=access_token,
+        created_at=now.isoformat(),
+        expires_at=expires_at.isoformat(),
+        is_active=1
+    )
+    db.add(auth_token)
+    db.commit()
+
+    return {
+        "message": "Авторизация успешна", 
+        "user_id": user.id,
+        "access_token": access_token,
+        "token_type": "bearer",
+        "expires_in": JWT_EXPIRATION_HOURS * 3600  # в секундах
+    }
 
 # -----------------------------
 # Эндпоинты API
 # -----------------------------
-@app.get("/")
+@app.get("/", tags=["Общие"])
 def home():
     return {"message": "Добро пожаловать в NartBooks!"}
 
-@app.post("/register")
+@app.post("/register", include_in_schema=False)
 def register_user(data: UserCreate, db: Session = Depends(get_db)):
     if db.query(User).filter(User.email == data.email).first():
         raise HTTPException(status_code=400, detail="Пользователь с таким email уже существует")
@@ -259,14 +365,15 @@ def register_user(data: UserCreate, db: Session = Depends(get_db)):
 
     return {"message": "Регистрация прошла успешно!", "user_id": user.id}
 
-@app.post("/admin/add_book")
-def add_book(book: BookCreate, db: Session = Depends(get_db), _: None = Depends(require_admin)):
+@app.post("/admin/add_book", tags=["Администрирование"])
+def add_book(book: BookCreate, db: Session = Depends(get_db), admin_user: User = Depends(require_admin_role)):
+    """Добавление книги месяца (только для администраторов)"""
     book_entry = BookOfMonth(**book.dict())
     db.add(book_entry)
     db.commit()
     return {"message": "Книга месяца успешно добавлена"}
 
-@app.get("/book_of_month")
+@app.get("/book_of_month", tags=["Книги"])
 def get_book_of_month(db: Session = Depends(get_db)):
     book = db.query(BookOfMonth).order_by(BookOfMonth.id.desc()).first()
     if not book:
@@ -277,3 +384,36 @@ def get_book_of_month(db: Session = Depends(get_db)):
         "date": book.date,
         "location": book.location
     }
+
+@app.get("/me", tags=["Пользователи"])
+def get_current_user_info(current_user: User = Depends(get_current_user)):
+    """Получение информации о текущем пользователе"""
+    return {
+        "id": current_user.id,
+        "first_name": current_user.first_name,
+        "last_name": current_user.last_name,
+        "email": current_user.email,
+        "phone": current_user.phone,
+        "birth_date": current_user.birth_date,
+        "role": current_user.role,
+        "fav_authors": current_user.fav_authors.split(", ") if current_user.fav_authors else [],
+        "fav_genres": current_user.fav_genres.split(", ") if current_user.fav_genres else [],
+        "fav_books": current_user.fav_books.split(", ") if current_user.fav_books else [],
+        "discuss_books": current_user.discuss_books.split(", ") if current_user.discuss_books else []
+    }
+
+class RoleUpdate(BaseModel):
+    user_id: int
+    role: UserRole
+
+@app.post("/admin/update_role", tags=["Администрирование"])
+def update_user_role(role_update: RoleUpdate, db: Session = Depends(get_db), admin_user: User = Depends(require_admin_role)):
+    """Обновление роли пользователя (только для администраторов)"""
+    user = db.query(User).filter(User.id == role_update.user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    
+    user.role = role_update.role
+    db.commit()
+    
+    return {"message": f"Роль пользователя {user.email} обновлена на {role_update.role}"}
