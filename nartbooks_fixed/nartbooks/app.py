@@ -401,6 +401,7 @@ def get_current_user_info(current_user: User = Depends(get_current_user)):
         "fav_books": current_user.fav_books.split(", ") if current_user.fav_books else [],
         "discuss_books": current_user.discuss_books.split(", ") if current_user.discuss_books else []
     }
+    
 
 class RoleUpdate(BaseModel):
     user_id: int
