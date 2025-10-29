@@ -1,6 +1,7 @@
-from fastapi import FastAPI, Depends, HTTPException, Header
-from pydantic import BaseModel, EmailStr
-from sqlalchemy import create_engine, Column, Integer, String, Text, Date
+from fastapi import FastAPI, Depends, HTTPException, Header, Query
+from fastapi import status
+from pydantic import BaseModel, EmailStr, validator
+from sqlalchemy import create_engine, Column, Integer, String, Text, Date, or_
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
 from typing import Optional, List
 import smtplib
@@ -55,6 +56,7 @@ class BookOfMonth(Base):
     author = Column(String, nullable=False)
     date = Column(String, nullable=False)
     location = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
 
 class AuthCode(Base):
     __tablename__ = "auth_codes"
@@ -78,6 +80,23 @@ class AuthToken(Base):
 Base.metadata.create_all(bind=engine)
 
 # -----------------------------
+# Актуализация схемы БД (SQLite): добавляем колонку description при отсутствии
+# -----------------------------
+def ensure_description_column_exists():
+    try:
+        with engine.connect() as conn:
+            info = conn.execute("PRAGMA table_info(books_of_month)").fetchall()
+            columns = {row[1] for row in info}  # row[1] = name
+            if "description" not in columns:
+                # Добавляем nullable колонку для обратной совместимости
+                conn.execute("ALTER TABLE books_of_month ADD COLUMN description TEXT")
+    except Exception:
+        # Молча игнорируем, чтобы не ломать запуск в окружениях без прав/доступа
+        pass
+
+ensure_description_column_exists()
+
+# -----------------------------
 # Pydantic-схемы (валидация данных)
 # -----------------------------
 class UserCreate(BaseModel):
@@ -91,11 +110,30 @@ class UserCreate(BaseModel):
     fav_books: List[str]
     discuss_books: List[str]
 
+    @validator("birth_date")
+    def validate_birth_date(cls, value: Optional[str]) -> Optional[str]:
+        if value is None or value == "":
+            return value
+        try:
+            birth = datetime.strptime(value, "%Y-%m-%d").date()
+        except ValueError:
+            raise ValueError("Неверный формат даты рождения. Используйте YYYY-MM-DD")
+
+        today = datetime.now().date()
+        if birth > today:
+            raise ValueError("Дата рождения не может быть в будущем")
+
+        age = today.year - birth.year - ((today.month, today.day) < (birth.month, birth.day))
+        if age < 5 or age > 120:
+            raise ValueError("Недопустимый возраст. Допустимо от 5 до 120 лет")
+        return value
+
 class BookCreate(BaseModel):
     title: str
     author: str
     date: str
     location: str
+    description: Optional[str] = None
 
 # -----------------------------
 # Зависимости
@@ -335,7 +373,7 @@ def verify_auth_code(req: AuthVerify, db: Session = Depends(get_db)):
 def home():
     return {"message": "Добро пожаловать в NartBooks!"}
 
-@app.post("/register", include_in_schema=False)
+@app.post("/register", include_in_schema=False, status_code=status.HTTP_201_CREATED)
 def register_user(data: UserCreate, db: Session = Depends(get_db)):
     if db.query(User).filter(User.email == data.email).first():
         raise HTTPException(status_code=400, detail="Пользователь с таким email уже существует")
@@ -365,7 +403,7 @@ def register_user(data: UserCreate, db: Session = Depends(get_db)):
 
     return {"message": "Регистрация прошла успешно!", "user_id": user.id}
 
-@app.post("/admin/add_book", tags=["Администрирование"])
+@app.post("/admin/add_book", tags=["Администрирование"], status_code=status.HTTP_201_CREATED)
 def add_book(book: BookCreate, db: Session = Depends(get_db), admin_user: User = Depends(require_admin_role)):
     """Добавление книги месяца (только для администраторов)"""
     book_entry = BookOfMonth(**book.dict())
@@ -382,7 +420,67 @@ def get_book_of_month(db: Session = Depends(get_db)):
         "title": book.title,
         "author": book.author,
         "date": book.date,
-        "location": book.location
+        "location": book.location,
+        "description": book.description
+    }
+
+@app.get("/books", tags=["Книги"])
+def list_books(
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=100),
+    search: Optional[str] = Query(None, description="Поиск по названию или автору"),
+    db: Session = Depends(get_db)
+):
+    """Получение списка книг месяца с пагинацией и поиском"""
+    base_query = db.query(BookOfMonth)
+    if search:
+        like = f"%{search}%"
+        base_query = base_query.filter(
+            or_(BookOfMonth.title.ilike(like), BookOfMonth.author.ilike(like))
+        )
+
+    total = base_query.count()
+    offset_value = (page - 1) * limit
+    books = (
+        base_query
+        .order_by(BookOfMonth.id.desc())
+        .offset(offset_value)
+        .limit(limit)
+        .all()
+    )
+
+    total_pages = (total + limit - 1) // limit if total else 0
+
+    return {
+        "page": page,
+        "limit": limit,
+        "total": total,
+        "pages": total_pages,
+        "items": [
+            {
+                "id": b.id,
+                "title": b.title,
+                "author": b.author,
+                "date": b.date,
+                "location": b.location,
+                "description": b.description,
+            }
+            for b in books
+        ],
+    }
+
+@app.get("/books/{id}", tags=["Книги"])
+def get_book_by_id(id: int, db: Session = Depends(get_db)):
+    book = db.query(BookOfMonth).filter(BookOfMonth.id == id).first()
+    if not book:
+        raise HTTPException(status_code=404, detail="Книга не найдена")
+    return {
+        "id": book.id,
+        "title": book.title,
+        "author": book.author,
+        "date": book.date,
+        "location": book.location,
+        "description": book.description
     }
 
 @app.get("/me", tags=["Пользователи"])
@@ -418,3 +516,65 @@ def update_user_role(role_update: RoleUpdate, db: Session = Depends(get_db), adm
     db.commit()
     
     return {"message": f"Роль пользователя {user.email} обновлена на {role_update.role}"}
+
+@app.get("/users", tags=["Пользователи"])
+def list_users(
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=100),
+    db: Session = Depends(get_db),
+    admin_user: User = Depends(require_admin_role)
+):
+    """Список пользователей (только для администраторов) c пагинацией"""
+    total = db.query(User).count()
+    offset_value = (page - 1) * limit
+    users = (
+        db.query(User)
+        .order_by(User.id.desc())
+        .offset(offset_value)
+        .limit(limit)
+        .all()
+    )
+    total_pages = (total + limit - 1) // limit if total else 0
+
+    return {
+        "page": page,
+        "limit": limit,
+        "total": total,
+        "pages": total_pages,
+        "items": [
+            {
+                "id": u.id,
+                "first_name": u.first_name,
+                "last_name": u.last_name,
+                "email": u.email,
+                "phone": u.phone,
+                "birth_date": u.birth_date,
+                "role": u.role,
+            }
+            for u in users
+        ],
+    }
+
+@app.get("/users/{id}", tags=["Пользователи"])
+def get_user_by_id(
+    id: int,
+    db: Session = Depends(get_db),
+    admin_user: User = Depends(require_admin_role)
+):
+    """Получение конкретного пользователя по id (только для администраторов)"""
+    user = db.query(User).filter(User.id == id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    return {
+        "id": user.id,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "email": user.email,
+        "phone": user.phone,
+        "birth_date": user.birth_date,
+        "role": user.role,
+        "fav_authors": user.fav_authors.split(", ") if user.fav_authors else [],
+        "fav_genres": user.fav_genres.split(", ") if user.fav_genres else [],
+        "fav_books": user.fav_books.split(", ") if user.fav_books else [],
+        "discuss_books": user.discuss_books.split(", ") if user.discuss_books else [],
+    }
