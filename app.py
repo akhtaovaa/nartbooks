@@ -10,6 +10,7 @@ import os
 import random
 import string
 import jwt
+import re
 from datetime import datetime, timedelta
 from enum import Enum
 
@@ -109,6 +110,62 @@ class UserCreate(BaseModel):
     fav_genres: List[str]
     fav_books: List[str]
     discuss_books: List[str]
+
+    @validator("phone")
+    def validate_phone(cls, value: Optional[str]) -> Optional[str]:
+        if value is None or value == "":
+            return value
+        # Удаляем все пробелы, скобки и дефисы
+        cleaned = re.sub(r'[\s\-\(\)]', '', value)
+        # Проверяем на российские форматы: +7XXXXXXXXXX или 8XXXXXXXXXX
+        if re.match(r'^(\+7|8)\d{10}$', cleaned):
+            return value
+        # Проверяем на международный формат: +XXXXXXXXX
+        if re.match(r'^\+\d{10,15}$', cleaned):
+            return value
+        raise ValueError("Неверный формат телефона. Используйте формат: +7XXXXXXXXXX или 8XXXXXXXXXX")
+
+    @validator("birth_date")
+    def validate_birth_date(cls, value: Optional[str]) -> Optional[str]:
+        if value is None or value == "":
+            return value
+        try:
+            birth = datetime.strptime(value, "%Y-%m-%d").date()
+        except ValueError:
+            raise ValueError("Неверный формат даты рождения. Используйте YYYY-MM-DD")
+
+        today = datetime.now().date()
+        if birth > today:
+            raise ValueError("Дата рождения не может быть в будущем")
+
+        age = today.year - birth.year - ((today.month, today.day) < (birth.month, birth.day))
+        if age < 5 or age > 120:
+            raise ValueError("Недопустимый возраст. Допустимо от 5 до 120 лет")
+        return value
+
+class UserUpdate(BaseModel):
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    phone: Optional[str] = None
+    birth_date: Optional[str] = None
+    fav_authors: Optional[List[str]] = None
+    fav_genres: Optional[List[str]] = None
+    fav_books: Optional[List[str]] = None
+    discuss_books: Optional[List[str]] = None
+
+    @validator("phone")
+    def validate_phone(cls, value: Optional[str]) -> Optional[str]:
+        if value is None or value == "":
+            return value
+        # Удаляем все пробелы, скобки и дефисы
+        cleaned = re.sub(r'[\s\-\(\)]', '', value)
+        # Проверяем на российские форматы: +7XXXXXXXXXX или 8XXXXXXXXXX
+        if re.match(r'^(\+7|8)\d{10}$', cleaned):
+            return value
+        # Проверяем на международный формат: +XXXXXXXXX
+        if re.match(r'^\+\d{10,15}$', cleaned):
+            return value
+        raise ValueError("Неверный формат телефона. Используйте формат: +7XXXXXXXXXX или 8XXXXXXXXXX")
 
     @validator("birth_date")
     def validate_birth_date(cls, value: Optional[str]) -> Optional[str]:
@@ -403,20 +460,31 @@ def register_user(data: UserCreate, db: Session = Depends(get_db)):
 
     return {"message": "Регистрация прошла успешно!", "user_id": user.id}
 
-@app.post("/admin/add_book", tags=["Администрирование"], status_code=status.HTTP_201_CREATED)
+@app.post("/books", tags=["Книги"], status_code=status.HTTP_201_CREATED)
 def add_book(book: BookCreate, db: Session = Depends(get_db), admin_user: User = Depends(require_admin_role)):
     """Добавление книги месяца (только для администраторов)"""
     book_entry = BookOfMonth(**book.dict())
     db.add(book_entry)
     db.commit()
-    return {"message": "Книга месяца успешно добавлена"}
+    db.refresh(book_entry)
+    return {
+        "message": "Книга месяца успешно добавлена",
+        "id": book_entry.id,
+        "title": book_entry.title,
+        "author": book_entry.author,
+        "date": book_entry.date,
+        "location": book_entry.location,
+        "description": book_entry.description
+    }
 
-@app.get("/book_of_month", tags=["Книги"])
-def get_book_of_month(db: Session = Depends(get_db)):
+@app.get("/books/current", tags=["Книги"])
+def get_current_book_of_month(db: Session = Depends(get_db)):
+    """Получение текущей книги месяца"""
     book = db.query(BookOfMonth).order_by(BookOfMonth.id.desc()).first()
     if not book:
         raise HTTPException(status_code=404, detail="Книга месяца не найдена")
     return {
+        "id": book.id,
         "title": book.title,
         "author": book.author,
         "date": book.date,
@@ -471,6 +539,7 @@ def list_books(
 
 @app.get("/books/{id}", tags=["Книги"])
 def get_book_by_id(id: int, db: Session = Depends(get_db)):
+    """Получение книги по ID"""
     book = db.query(BookOfMonth).filter(BookOfMonth.id == id).first()
     if not book:
         raise HTTPException(status_code=404, detail="Книга не найдена")
@@ -482,6 +551,44 @@ def get_book_by_id(id: int, db: Session = Depends(get_db)):
         "location": book.location,
         "description": book.description
     }
+
+@app.put("/books/{id}", tags=["Книги"])
+def update_book(id: int, book: BookCreate, db: Session = Depends(get_db), admin_user: User = Depends(require_admin_role)):
+    """Обновление книги по ID (только для администраторов)"""
+    book_entry = db.query(BookOfMonth).filter(BookOfMonth.id == id).first()
+    if not book_entry:
+        raise HTTPException(status_code=404, detail="Книга не найдена")
+    
+    book_entry.title = book.title
+    book_entry.author = book.author
+    book_entry.date = book.date
+    book_entry.location = book.location
+    book_entry.description = book.description
+    
+    db.commit()
+    db.refresh(book_entry)
+    
+    return {
+        "message": "Книга успешно обновлена",
+        "id": book_entry.id,
+        "title": book_entry.title,
+        "author": book_entry.author,
+        "date": book_entry.date,
+        "location": book_entry.location,
+        "description": book_entry.description
+    }
+
+@app.delete("/books/{id}", tags=["Книги"], status_code=status.HTTP_204_NO_CONTENT)
+def delete_book(id: int, db: Session = Depends(get_db), admin_user: User = Depends(require_admin_role)):
+    """Удаление книги по ID (только для администраторов)"""
+    book_entry = db.query(BookOfMonth).filter(BookOfMonth.id == id).first()
+    if not book_entry:
+        raise HTTPException(status_code=404, detail="Книга не найдена")
+    
+    db.delete(book_entry)
+    db.commit()
+    
+    return None
 
 @app.get("/me", tags=["Пользователи"])
 def get_current_user_info(current_user: User = Depends(get_current_user)):
@@ -499,23 +606,71 @@ def get_current_user_info(current_user: User = Depends(get_current_user)):
         "fav_books": current_user.fav_books.split(", ") if current_user.fav_books else [],
         "discuss_books": current_user.discuss_books.split(", ") if current_user.discuss_books else []
     }
+
+@app.patch("/me", tags=["Пользователи"])
+def update_current_user_profile(
+    user_update: UserUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Обновление профиля текущего пользователя"""
+    # Обновляем только те поля, которые были предоставлены
+    if user_update.first_name is not None:
+        current_user.first_name = user_update.first_name
+    if user_update.last_name is not None:
+        current_user.last_name = user_update.last_name
+    if user_update.phone is not None:
+        current_user.phone = user_update.phone
+    if user_update.birth_date is not None:
+        current_user.birth_date = user_update.birth_date
+    if user_update.fav_authors is not None:
+        current_user.fav_authors = ", ".join(user_update.fav_authors)
+    if user_update.fav_genres is not None:
+        current_user.fav_genres = ", ".join(user_update.fav_genres)
+    if user_update.fav_books is not None:
+        current_user.fav_books = ", ".join(user_update.fav_books)
+    if user_update.discuss_books is not None:
+        current_user.discuss_books = ", ".join(user_update.discuss_books)
+    
+    db.commit()
+    db.refresh(current_user)
+    
+    return {
+        "message": "Профиль успешно обновлен",
+        "id": current_user.id,
+        "first_name": current_user.first_name,
+        "last_name": current_user.last_name,
+        "email": current_user.email,
+        "phone": current_user.phone,
+        "birth_date": current_user.birth_date,
+        "role": current_user.role,
+        "fav_authors": current_user.fav_authors.split(", ") if current_user.fav_authors else [],
+        "fav_genres": current_user.fav_genres.split(", ") if current_user.fav_genres else [],
+        "fav_books": current_user.fav_books.split(", ") if current_user.fav_books else [],
+        "discuss_books": current_user.discuss_books.split(", ") if current_user.discuss_books else []
+    }
     
 
 class RoleUpdate(BaseModel):
-    user_id: int
     role: UserRole
 
-@app.post("/admin/update_role", tags=["Администрирование"])
-def update_user_role(role_update: RoleUpdate, db: Session = Depends(get_db), admin_user: User = Depends(require_admin_role)):
-    """Обновление роли пользователя (только для администраторов)"""
-    user = db.query(User).filter(User.id == role_update.user_id).first()
+@app.put("/users/{id}/role", tags=["Пользователи"])
+def update_user_role(id: int, role_update: RoleUpdate, db: Session = Depends(get_db), admin_user: User = Depends(require_admin_role)):
+    """Обновление роли пользователя по ID (только для администраторов)"""
+    user = db.query(User).filter(User.id == id).first()
     if not user:
         raise HTTPException(status_code=404, detail="Пользователь не найден")
     
     user.role = role_update.role
     db.commit()
+    db.refresh(user)
     
-    return {"message": f"Роль пользователя {user.email} обновлена на {role_update.role}"}
+    return {
+        "message": f"Роль пользователя {user.email} обновлена на {role_update.role}",
+        "id": user.id,
+        "email": user.email,
+        "role": user.role
+    }
 
 @app.get("/users", tags=["Пользователи"])
 def list_users(
