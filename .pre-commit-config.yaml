@@ -1,0 +1,21 @@
+repos:
+  # Ruff для форматирования и линтинга
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.1.15  # Актуальная версия ruff-pre-commit
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+      - id: ruff-format
+
+  # Стандартные проверки
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace      # Удаление пробелов в конце строк
+      - id: end-of-file-fixer        # Пустая строка в конце файла
+      - id: check-yaml               # Проверка YAML синтаксиса
+      - id: check-added-large-files  # Предупреждение о больших файлах
+      - id: check-json               # Проверка JSON синтаксиса
+      - id: check-merge-conflict     # Проверка конфликтов слияния
+      - id: check-toml               # Проверка TOML синтаксиса
+
