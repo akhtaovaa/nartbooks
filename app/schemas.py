@@ -112,3 +112,21 @@ class AuthVerify(BaseModel):
 class RoleUpdate(BaseModel):
     role: UserRole
 
+
+class FavoriteCreate(BaseModel):
+    """Request body for adding a book to favorites."""
+
+    book_id: int
+
+
+class ReviewCreate(BaseModel):
+    """Request body for creating a review."""
+
+    rating: int
+    comment: Optional[str] = None
+
+    @validator("rating")
+    def validate_rating(cls, value: int) -> int:
+        if not 1 <= value <= 5:
+            raise ValueError("Оценка должна быть от 1 до 5")
+        return value

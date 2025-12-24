@@ -53,3 +53,26 @@ class AuthToken(Base):
     expires_at = Column(String, nullable=False)
     is_active = Column(Integer, default=1)
 
+
+class Favorite(Base):
+    """User's favorite books."""
+
+    __tablename__ = "favorites"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    book_id = Column(Integer, nullable=False, index=True)
+    created_at = Column(String, nullable=False)
+
+
+class Review(Base):
+    """User reviews for books."""
+
+    __tablename__ = "reviews"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    book_id = Column(Integer, nullable=False, index=True)
+    rating = Column(Integer, nullable=False)
+    comment = Column(Text, nullable=True)
+    created_at = Column(String, nullable=False)
