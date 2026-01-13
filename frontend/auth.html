@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NartBooks — Вход</title>
+    <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+<div class="layout">
+    <nav class="nav">
+        <div class="nav-inner">
+            <a class="brand" href="index.html">NartBooks</a>
+            <div class="nav-links">
+                <a href="index.html">Книга месяца</a>
+                <a href="books.html">Каталог</a>
+                <a href="favorites.html" data-auth="true" class="hidden">Избранное</a>
+                <a href="profile.html" data-auth="true" class="hidden">Профиль</a>
+                <a href="admin.html" data-admin="true" class="hidden">Админ</a>
+            </div>
+            <div class="nav-right">
+                <span class="muted" data-user-name></span>
+                <button class="btn ghost" data-guest="true" onclick="window.location.href='auth.html'">Войти</button>
+                <button class="btn ghost hidden" data-auth="true" data-logout>Выйти</button>
+            </div>
+        </div>
+    </nav>
+
+    <main class="page">
+        <section class="card" style="max-width:480px; margin:40px auto;">
+            <h1 class="section-title" style="margin-bottom:8px;">Вход в NartBooks</h1>
+            <p class="muted" style="margin-top:0; margin-bottom:16px;">
+                Введите email или телефон — мы отправим код подтверждения.
+            </p>
+
+            <div id="step-send">
+                <div style="display:flex; flex-direction:column; gap:10px; margin-bottom:10px;">
+                    <label>
+                        <span class="muted">Email</span>
+                        <input id="email" type="email" style="width:100%; padding:8px 10px; border-radius:8px; border:1px solid var(--border); margin-top:4px;">
+                    </label>
+                    <div style="text-align:center; font-size:13px; color:var(--muted);">или</div>
+                    <label>
+                        <span class="muted">Телефон</span>
+                        <input id="phone" type="tel" placeholder="+7..." style="width:100%; padding:8px 10px; border-radius:8px; border:1px solid var(--border); margin-top:4px;">
+                    </label>
+                </div>
+                <button id="send-btn" class="btn primary" style="width:100%;">Отправить код</button>
+                <p id="timer" class="muted hidden" style="margin-top:8px; font-size:13px;"></p>
+            </div>
+
+            <hr style="margin:20px 0; border:none; border-top:1px solid var(--border);">
+
+            <div id="step-verify" class="hidden">
+                <p class="muted" style="margin-top:0; margin-bottom:8px;">
+                    Мы отправили код. Введите его ниже:
+                </p>
+                <input id="code" type="text" maxlength="10" style="width:100%; padding:8px 10px; border-radius:8px; border:1px solid var(--border); margin-bottom:10px;">
+                <button id="verify-btn" class="btn primary" style="width:100%;">Подтвердить код</button>
+            </div>
+
+            <div id="status" class="status hidden" style="margin-top:14px;"></div>
+        </section>
+    </main>
+</div>
+
+<script type="module">
+    import {
+        apiFetch,
+        loadCurrentUser,
+        setToken,
+        initShell,
+        setStatus,
+        clearStatus
+    } from "./main.js";
+
+    let cooldown = 0;
+    let timerId = null;
+
+    document.addEventListener("DOMContentLoaded", async () => {
+        initShell();
+        await loadCurrentUser();
+
+        const sendBtn = document.getElementById("send-btn");
+        const verifyBtn = document.getElementById("verify-btn");
+
+        sendBtn.addEventListener("click", handleSendCode);
+        verifyBtn.addEventListener("click", handleVerifyCode);
+    });
+
+    function startTimer() {
+        const timerEl = document.getElementById("timer");
+        timerEl.classList.remove("hidden");
+        cooldown = 60;
+        updateTimerText();
+        if (timerId) clearInterval(timerId);
+        timerId = setInterval(() => {
+            cooldown -= 1;
+            if (cooldown <= 0) {
+                clearInterval(timerId);
+                timerEl.classList.add("hidden");
+            } else {
+                updateTimerText();
+            }
+        }, 1000);
+    }
+
+    function updateTimerText() {
+        const timerEl = document.getElementById("timer");
+        timerEl.textContent = `Повторно отправить код можно через ${cooldown} c`;
+    }
+
+    async function handleSendCode() {
+        const email = document.getElementById("email").value.trim();
+        const phone = document.getElementById("phone").value.trim();
+        const statusEl = document.getElementById("status");
+        const sendBtn = document.getElementById("send-btn");
+
+        clearStatus(statusEl);
+
+        if (!email && !phone) {
+            setStatus(statusEl, "Укажите email или телефон", "error");
+            return;
+        }
+
+        sendBtn.disabled = true;
+        sendBtn.textContent = "Отправляем...";
+        try {
+            await apiFetch("/auth/send-code", {
+                method: "POST",
+                body: JSON.stringify({ email: email || null, phone: phone || null })
+            });
+            setStatus(statusEl, "Код отправлен. Проверьте почту или телефон.");
+            document.getElementById("step-verify").classList.remove("hidden");
+            startTimer();
+        } catch (err) {
+            setStatus(statusEl, err.message || "Не удалось отправить код", "error");
+        } finally {
+            sendBtn.disabled = false;
+            sendBtn.textContent = "Отправить код";
+        }
+    }
+
+    async function handleVerifyCode() {
+        const email = document.getElementById("email").value.trim();
+        const phone = document.getElementById("phone").value.trim();
+        const code = document.getElementById("code").value.trim();
+        const statusEl = document.getElementById("status");
+        const verifyBtn = document.getElementById("verify-btn");
+
+        clearStatus(statusEl);
+        if (!code) {
+            setStatus(statusEl, "Введите код", "error");
+            return;
+        }
+
+        verifyBtn.disabled = true;
+        verifyBtn.textContent = "Проверяем...";
+        try {
+            const res = await apiFetch("/auth/verify-code", {
+                method: "POST",
+                body: JSON.stringify({ email: email || null, phone: phone || null, code })
+            });
+            if (res?.access_token) {
+                setToken(res.access_token);
+                setStatus(statusEl, "Авторизация успешна, перенаправляем...");
+                setTimeout(() => {
+                    window.location.href = "index.html";
+                }, 700);
+            } else {
+                setStatus(statusEl, "Ответ сервера без токена", "error");
+            }
+        } catch (err) {
+            setStatus(statusEl, err.message || "Неверный код или ошибка сервера", "error");
+        } finally {
+            verifyBtn.disabled = false;
+            verifyBtn.textContent = "Подтвердить код";
+        }
+    }
+</script>
+</body>
+</html>
+

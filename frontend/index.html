@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NartBooks — Книга месяца</title>
+    <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+    <div class="layout">
+        <nav class="nav">
+            <div class="nav-inner">
+                <a class="brand" href="index.html">NartBooks</a>
+                <div class="nav-links">
+                    <a href="index.html">Книга месяца</a>
+                    <a href="books.html">Каталог</a>
+                    <a href="favorites.html" data-auth="true" class="hidden">Избранное</a>
+                    <a href="profile.html" data-auth="true" class="hidden">Профиль</a>
+                    <a href="admin.html" data-admin="true" class="hidden">Админ</a>
+                </div>
+                <div class="nav-right">
+                    <span class="muted" data-user-name></span>
+                    <button class="btn ghost" data-guest="true" onclick="window.location.href='auth.html'">Войти</button>
+                    <button class="btn ghost hidden" data-auth="true" data-logout>Выйти</button>
+                </div>
+            </div>
+        </nav>
+
+        <main class="page">
+            <section class="hero">
+                <h1 class="section-title">Книга месяца</h1>
+                <p class="muted" style="margin: 0 0 12px;">Актуальный выбор книжного клуба и последние отзывы.</p>
+                <div id="current-book" class="card">
+                    <p id="loading-current" class="loading">Загрузка...</p>
+                    <div id="current-book-content" class="hidden"></div>
+                    <div id="current-book-actions" class="actions hidden"></div>
+                </div>
+                <div id="status" class="status hidden"></div>
+            </section>
+        </main>
+    </div>
+
+    <script type="module">
+        import {
+            apiFetch,
+            loadCurrentUser,
+            currentUser,
+            initShell,
+            setStatus,
+            clearStatus,
+            escapeHTML
+        } from "./main.js";
+
+        document.addEventListener("DOMContentLoaded", async () => {
+            initShell();
+            await loadCurrentUser();
+            await loadCurrentBook();
+        });
+
+        async function loadCurrentBook() {
+            const loadingEl = document.getElementById("loading-current");
+            const contentEl = document.getElementById("current-book-content");
+            const actionsEl = document.getElementById("current-book-actions");
+            const statusEl = document.getElementById("status");
+
+            clearStatus(statusEl);
+            loadingEl.classList.remove("hidden");
+            contentEl.classList.add("hidden");
+            actionsEl.classList.add("hidden");
+
+            try {
+                const book = await apiFetch("/books/current");
+                const avg = typeof book.avg_rating === "number" ? book.avg_rating.toFixed(1) : "—";
+
+                const locationText = book.location ? ` · ${escapeHTML(book.location)}` : "";
+                const description = book.description ? escapeHTML(book.description) : "Описание не добавлено";
+
+                contentEl.innerHTML = `
+                    <div class="flex" style="align-items:flex-start;">
+                        <div style="flex:1; min-width:240px;">
+                            <div class="tag">#${book.id} · ${escapeHTML(book.date || "")}</div>
+                            <h2 style="margin:8px 0 6px;">${escapeHTML(book.title)}</h2>
+                            <p class="muted" style="margin:0 0 12px;">${escapeHTML(book.author)}${locationText}</p>
+                            <p style="margin:0;">${description}</p>
+                        </div>
+                        <div style="min-width:160px;">
+                            <div class="card" style="box-shadow:none; border-color:var(--border);">
+                                <div class="muted" style="font-size:13px;">Средний рейтинг</div>
+                                <div style="font-size:32px; font-weight:700; margin-top:6px;">${avg}</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+                contentEl.classList.remove("hidden");
+                actionsEl.innerHTML = "";
+                const goToBookBtn = document.createElement("button");
+                goToBookBtn.className = "btn ghost";
+                goToBookBtn.textContent = "Отзывы и обсуждение";
+                goToBookBtn.addEventListener("click", () => {
+                    window.location.href = `book.html?id=${book.id}`;
+                });
+                actionsEl.appendChild(goToBookBtn);
+
+                if (currentUser) {
+                    const favBtn = document.createElement("button");
+                    favBtn.className = "btn primary";
+                    favBtn.textContent = "Добавить в избранное";
+                    favBtn.addEventListener("click", () => addToFavorites(book.id, statusEl));
+                    actionsEl.appendChild(favBtn);
+                } else {
+                    const loginBtn = document.createElement("button");
+                    loginBtn.className = "btn primary";
+                    loginBtn.textContent = "Войти, чтобы добавить в избранное";
+                    loginBtn.addEventListener("click", () => {
+                        window.location.href = "auth.html";
+                    });
+                    actionsEl.appendChild(loginBtn);
+                }
+
+                actionsEl.classList.remove("hidden");
+                loadingEl.classList.add("hidden");
+            } catch (err) {
+                loadingEl.classList.add("hidden");
+                setStatus(statusEl, err.message || "Не удалось загрузить книгу месяца", "error");
+            }
+        }
+
+        async function addToFavorites(bookId, statusEl) {
+            clearStatus(statusEl);
+            try {
+                await apiFetch("/favorites", {
+                    method: "POST",
+                    body: JSON.stringify({ book_id: bookId })
+                });
+                setStatus(statusEl, "Книга добавлена в избранное");
+            } catch (err) {
+                setStatus(statusEl, err.message || "Ошибка при добавлении", "error");
+            }
+        }
+    </script>
+</body>
+</html>
