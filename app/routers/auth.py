@@ -7,7 +7,7 @@ import requests
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from ..config import JWT_EXPIRATION_HOURS, MSG_OVRX_BASE_URL
+from ..config import JWT_EXPIRATION_HOURS, MSG_OVRX_BASE_URL, MSG_OVRX_API_KEY
 from ..dependencies import get_db
 from ..models import AuthCode, AuthToken, User
 from ..schemas import AuthRequest, AuthVerify
@@ -35,10 +35,33 @@ def send_auth_code(req: AuthRequest, db: Session = Depends(get_db)):
 
     try:
         endpoint = "email" if req.email else "sms"
-        response = requests.post(f"{MSG_OVRX_BASE_URL}/auth-code/{endpoint}", json=payload)
+        headers = {}
+        if MSG_OVRX_API_KEY and MSG_OVRX_API_KEY != "ТВОЙ_API_КЛЮЧ":
+            headers["Authorization"] = f"Bearer {MSG_OVRX_API_KEY}"
+            headers["X-API-Key"] = MSG_OVRX_API_KEY
+        
+        response = requests.post(
+            f"{MSG_OVRX_BASE_URL}/auth-code/{endpoint}",
+            json=payload,
+            headers=headers,
+            timeout=10
+        )
         response.raise_for_status()
+    except requests.exceptions.Timeout:
+        raise HTTPException(status_code=500, detail="Таймаут при отправке кода. Попробуйте позже.")
+    except requests.exceptions.ConnectionError:
+        raise HTTPException(status_code=500, detail="Не удалось подключиться к сервису отправки. Проверьте подключение к интернету.")
+    except requests.exceptions.HTTPError as e:
+        error_detail = f"Ошибка сервиса отправки: {e.response.status_code}"
+        try:
+            error_data = e.response.json()
+            if "detail" in error_data:
+                error_detail = error_data["detail"]
+        except:
+            pass
+        raise HTTPException(status_code=500, detail=error_detail)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Ошибка при отправке кода: {exc}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при отправке кода: {str(exc)}")
 
     auth_code = AuthCode(
         identifier=identifier,

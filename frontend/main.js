@@ -25,7 +25,13 @@ async function apiFetch(path, options = {}) {
         headers["Content-Type"] = "application/json";
     }
 
-    const response = await fetch(`${API_BASE}${path}`, { ...options, headers });
+    // Убеждаемся, что path начинается с /
+    const fullPath = path.startsWith('/') ? path : `/${path}`;
+    const url = `${API_BASE}${fullPath}`;
+    
+    console.log('API Request:', url, options.method || 'GET'); // Отладка
+    
+    const response = await fetch(url, { ...options, headers });
     if (response.status === 204) {
         return null;
     }
@@ -118,20 +124,25 @@ function clearStatus(el) {
 
 // Утилита для безопасного создания HTML с текстом
 function escapeHTML(str) {
+    if (!str) return '';
     const div = document.createElement("div");
     div.textContent = str;
     return div.innerHTML;
 }
 
-export {
-    apiFetch,
-    loadCurrentUser,
-    setToken,
-    clearToken,
-    getToken,
-    currentUser,
-    initShell,
-    setStatus,
-    clearStatus,
-    escapeHTML,
-};
+// Алиас для совместимости
+function escapeHtml(str) {
+    return escapeHTML(str);
+}
+
+async function getCurrentUser() {
+    if (!currentUser) {
+        await loadCurrentUser();
+    }
+    return currentUser;
+}
+
+async function initAuth() {
+    await loadCurrentUser();
+    initShell();
+}
