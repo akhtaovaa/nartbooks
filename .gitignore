@@ -28,6 +28,13 @@ wheels/
 *.sqlite
 *.sqlite3
 
+# Temporary debug files
+frontend-new/debug-auth.html
+frontend-new/test-connection.html
+
+# Old frontend (replaced by frontend-new)
+frontend/
+
 # IDE
 .vscode/
 .idea/
