@@ -1,5 +1,7 @@
 """FastAPI dependencies shared across routers."""
 
+from typing import Optional
+
 from fastapi import Depends, Header, HTTPException
 from sqlalchemy.orm import Session
 
@@ -18,12 +20,12 @@ def get_db():
         db.close()
 
 
-def require_admin(x_admin_token: str | None = Header(default=None)):
+def require_admin(x_admin_token: Optional[str] = Header(default=None)):
     if x_admin_token != ADMIN_TOKEN:
         raise HTTPException(status_code=401, detail="Недостаточно прав")
 
 
-def get_current_user(authorization: str | None = Header(default=None), db: Session = Depends(get_db)):
+def get_current_user(authorization: Optional[str] = Header(default=None), db: Session = Depends(get_db)):
     if not authorization:
         raise HTTPException(status_code=401, detail="Токен авторизации не предоставлен")
 
@@ -48,7 +50,11 @@ def get_current_user(authorization: str | None = Header(default=None), db: Sessi
 
 
 def require_admin_role(current_user: User = Depends(get_current_user)):
-    if current_user.role != UserRole.ADMIN:
+    # Проверяем роль из БД - сравниваем строки, так как в БД роль хранится как строка
+    user_role = (current_user.role or "").strip().lower()
+    admin_role = UserRole.ADMIN.value.lower()
+    
+    if user_role != admin_role:
         raise HTTPException(status_code=403, detail="Недостаточно прав. Требуется роль администратора")
     return current_user
 

@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Отладка авторизации — NartBooks</title>
+    <style>
+        body { font-family: monospace; padding: 20px; background: #f5f5f5; }
+        .section { background: white; padding: 20px; margin: 10px 0; border-radius: 8px; }
+        button { padding: 10px 20px; margin: 5px; cursor: pointer; }
+        pre { background: #f0f0f0; padding: 10px; overflow-x: auto; }
+        .success { color: green; }
+        .error { color: red; }
+    </style>
+</head>
+<body>
+    <h1>🔍 Отладка авторизации</h1>
+    
+    <div class="section">
+        <h2>1. Проверка localStorage</h2>
+        <button onclick="checkLocalStorage()">Проверить токен</button>
+        <div id="localStorageResult"></div>
+    </div>
+    
+    <div class="section">
+        <h2>2. Тест отправки кода</h2>
+        <input type="email" id="testEmail" placeholder="email@example.com" value="admin@nartbooks.com">
+        <button onclick="testSendCode()">Отправить код</button>
+        <div id="sendCodeResult"></div>
+    </div>
+    
+    <div class="section">
+        <h2>3. Тест верификации</h2>
+        <input type="text" id="testCode" placeholder="Код">
+        <button onclick="testVerifyCode()">Проверить код</button>
+        <div id="verifyCodeResult"></div>
+    </div>
+    
+    <div class="section">
+        <h2>4. Тест получения пользователя</h2>
+        <button onclick="testGetUser()">Получить /me</button>
+        <div id="getUserResult"></div>
+    </div>
+    
+    <div class="section">
+        <h2>5. Полная проверка</h2>
+        <button onclick="fullTest()">Запустить полный тест</button>
+        <div id="fullTestResult"></div>
+    </div>
+
+    <script src="js/api.js"></script>
+    <script>
+        function log(elementId, message, isError = false) {
+            const el = document.getElementById(elementId);
+            const className = isError ? 'error' : 'success';
+            el.innerHTML += `<div class="${className}">${message}</div>`;
+        }
+        
+        function clear(elementId) {
+            document.getElementById(elementId).innerHTML = '';
+        }
+        
+        async function checkLocalStorage() {
+            clear('localStorageResult');
+            const token = localStorage.getItem('auth_token');
+            if (token) {
+                log('localStorageResult', `✅ Токен найден: ${token.substring(0, 50)}...`);
+                log('localStorageResult', `Длина токена: ${token.length} символов`);
+            } else {
+                log('localStorageResult', '❌ Токен не найден в localStorage', true);
+            }
+        }
+        
+        async function testSendCode() {
+            clear('sendCodeResult');
+            const email = document.getElementById('testEmail').value;
+            if (!email) {
+                log('sendCodeResult', '❌ Введите email', true);
+                return;
+            }
+            
+            try {
+                log('sendCodeResult', `📧 Отправка кода на ${email}...`);
+                const response = await window.api.sendAuthCode({ email });
+                log('sendCodeResult', `✅ Ответ получен: ${JSON.stringify(response, null, 2)}`);
+                
+                if (response.code) {
+                    document.getElementById('testCode').value = response.code;
+                    log('sendCodeResult', `✅ Код: ${response.code}`);
+                }
+            } catch (error) {
+                log('sendCodeResult', `❌ Ошибка: ${error.message}`, true);
+                console.error(error);
+            }
+        }
+        
+        async function testVerifyCode() {
+            clear('verifyCodeResult');
+            const email = document.getElementById('testEmail').value;
+            const code = document.getElementById('testCode').value;
+            
+            if (!email || !code) {
+                log('verifyCodeResult', '❌ Введите email и код', true);
+                return;
+            }
+            
+            try {
+                log('verifyCodeResult', `🔐 Верификация кода ${code}...`);
+                const response = await window.api.verifyAuthCode({ email, code });
+                log('verifyCodeResult', `✅ Ответ: ${JSON.stringify(response, null, 2)}`);
+                
+                if (response.access_token) {
+                    localStorage.setItem('auth_token', response.access_token);
+                    log('verifyCodeResult', `✅ Токен сохранен в localStorage`);
+                    await checkLocalStorage();
+                } else {
+                    log('verifyCodeResult', '❌ Токен не получен', true);
+                }
+            } catch (error) {
+                log('verifyCodeResult', `❌ Ошибка: ${error.message}`, true);
+                console.error(error);
+            }
+        }
+        
+        async function testGetUser() {
+            clear('getUserResult');
+            const token = localStorage.getItem('auth_token');
+            
+            if (!token) {
+                log('getUserResult', '❌ Токен не найден. Сначала выполните верификацию.', true);
+                return;
+            }
+            
+            try {
+                log('getUserResult', `👤 Получение пользователя с токеном ${token.substring(0, 30)}...`);
+                const user = await window.api.getCurrentUser();
+                log('getUserResult', `✅ Пользователь: ${JSON.stringify(user, null, 2)}`);
+            } catch (error) {
+                log('getUserResult', `❌ Ошибка: ${error.message}`, true);
+                console.error(error);
+                
+                if (error.message.includes('401')) {
+                    log('getUserResult', '⚠️ Токен недействителен, удаляем...', true);
+                    localStorage.removeItem('auth_token');
+                }
+            }
+        }
+        
+        async function fullTest() {
+            clear('fullTestResult');
+            log('fullTestResult', '🚀 Запуск полного теста...');
+            
+            // Шаг 1: Проверка localStorage
+            await checkLocalStorage();
+            
+            // Шаг 2: Отправка кода
+            log('fullTestResult', '📧 Шаг 1: Отправка кода...');
+            await testSendCode();
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            // Шаг 3: Верификация
+            const code = document.getElementById('testCode').value;
+            if (code) {
+                log('fullTestResult', '🔐 Шаг 2: Верификация кода...');
+                await testVerifyCode();
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                // Шаг 4: Получение пользователя
+                log('fullTestResult', '👤 Шаг 3: Получение пользователя...');
+                await testGetUser();
+            } else {
+                log('fullTestResult', '⚠️ Код не получен, пропускаем верификацию', true);
+            }
+            
+            log('fullTestResult', '✅ Тест завершен');
+        }
+        
+        // Автоматическая проверка при загрузке
+        window.addEventListener('load', () => {
+            checkLocalStorage();
+        });
+    </script>
+</body>
+</html>

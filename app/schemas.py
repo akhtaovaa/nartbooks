@@ -130,3 +130,18 @@ class ReviewCreate(BaseModel):
         if not 1 <= value <= 5:
             raise ValueError("Оценка должна быть от 1 до 5")
         return value
+
+
+class MeetingRegistrationResponse(BaseModel):
+    """Response model for meeting registration."""
+
+    id: int
+    user_id: int
+    book_id: int
+    registered_at: str
+    status: str
+    book_title: Optional[str] = None
+    book_date: Optional[str] = None
+    book_location: Optional[str] = None
+    user_name: Optional[str] = None
+    user_email: Optional[str] = None

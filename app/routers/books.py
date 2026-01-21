@@ -1,13 +1,14 @@
 """Book-related endpoints."""
 
 from datetime import datetime
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from ..dependencies import get_current_user, get_db, require_admin_role
-from ..models import BookOfMonth, Review, User
+from ..models import BookOfMonth, MeetingRegistration, Review, User
 from ..schemas import BookCreate, ReviewCreate
 
 router = APIRouter(prefix="/books", tags=["Книги"])
@@ -32,32 +33,56 @@ def add_book(book: BookCreate, db: Session = Depends(get_db), admin_user: User =
 
 @router.get("/current")
 def get_current_book_of_month(db: Session = Depends(get_db)):
-    book = db.query(BookOfMonth).order_by(BookOfMonth.id.desc()).first()
-    if not book:
-        raise HTTPException(status_code=404, detail="Книга месяца не найдена")
+    try:
+        # Сначала ищем книгу с флагом is_current
+        book = db.query(BookOfMonth).filter(BookOfMonth.is_current == 1).first()
+        
+        # Если нет текущей книги, берём последнюю добавленную
+        if not book:
+            book = db.query(BookOfMonth).order_by(BookOfMonth.id.desc()).first()
+        
+        if not book:
+            raise HTTPException(status_code=404, detail="Книга месяца не найдена")
 
-    avg_rating = (
-        db.query(func.avg(Review.rating))
-        .filter(Review.book_id == book.id)
-        .scalar()
-    )
+        avg_rating = (
+            db.query(func.avg(Review.rating))
+            .filter(Review.book_id == book.id)
+            .scalar()
+        )
+        
+        # Подсчитываем количество записавшихся
+        from ..models import MeetingRegistration
+        registered_count = (
+            db.query(func.count(MeetingRegistration.id))
+            .filter(
+                MeetingRegistration.book_id == book.id,
+                MeetingRegistration.status == "registered"
+            )
+            .scalar()
+        ) or 0
 
-    return {
-        "id": book.id,
-        "title": book.title,
-        "author": book.author,
-        "date": book.date,
-        "location": book.location,
-        "description": book.description,
-        "avg_rating": float(avg_rating) if avg_rating is not None else None,
-    }
+        return {
+            "id": book.id,
+            "title": book.title,
+            "author": book.author,
+            "date": book.date,
+            "location": book.location,
+            "description": book.description if hasattr(book, 'description') else None,
+            "avg_rating": float(avg_rating) if avg_rating is not None else None,
+            "is_current": bool(book.is_current) if hasattr(book, 'is_current') else False,
+            "registered_count": registered_count,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка при получении книги месяца: {str(e)}")
 
 
 @router.get("")
 def list_books(
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1, le=100),
-    search: str | None = Query(None, description="Поиск по названию или автору"),
+    search: Optional[str] = Query(None, description="Поиск по названию или автору"),
     db: Session = Depends(get_db),
 ):
     base_query = db.query(BookOfMonth)
@@ -74,6 +99,8 @@ def list_books(
     # Получаем средние рейтинги для всех выбранных книг одним запросом
     book_ids = [b.id for b in books]
     ratings_map: dict[int, float] = {}
+    registered_counts: dict[int, int] = {}
+    
     if book_ids:
         ratings = (
             db.query(Review.book_id, func.avg(Review.rating).label("avg_rating"))
@@ -82,6 +109,21 @@ def list_books(
             .all()
         )
         ratings_map = {r.book_id: float(r.avg_rating) for r in ratings}
+        
+        # Подсчитываем количество записавшихся на каждую встречу
+        registrations = (
+            db.query(
+                MeetingRegistration.book_id,
+                func.count(MeetingRegistration.id).label("count")
+            )
+            .filter(
+                MeetingRegistration.book_id.in_(book_ids),
+                MeetingRegistration.status == "registered"
+            )
+            .group_by(MeetingRegistration.book_id)
+            .all()
+        )
+        registered_counts = {r.book_id: r.count for r in registrations}
 
     return {
         "page": page,
@@ -97,6 +139,8 @@ def list_books(
                 "location": b.location,
                 "description": b.description,
                 "avg_rating": ratings_map.get(b.id),
+                "is_current": bool(b.is_current) if hasattr(b, 'is_current') else False,
+                "registered_count": registered_counts.get(b.id, 0),
             }
             for b in books
         ],
@@ -114,6 +158,16 @@ def get_book_by_id(book_id: int, db: Session = Depends(get_db)):
         .filter(Review.book_id == book_id)
         .scalar()
     )
+    
+    # Подсчитываем количество записавшихся
+    registered_count = (
+        db.query(func.count(MeetingRegistration.id))
+        .filter(
+            MeetingRegistration.book_id == book_id,
+            MeetingRegistration.status == "registered"
+        )
+        .scalar()
+    ) or 0
 
     return {
         "id": book.id,
@@ -123,6 +177,8 @@ def get_book_by_id(book_id: int, db: Session = Depends(get_db)):
         "location": book.location,
         "description": book.description,
         "avg_rating": float(avg_rating) if avg_rating is not None else None,
+        "is_current": bool(book.is_current) if hasattr(book, 'is_current') else False,
+        "registered_count": registered_count,
     }
 
 
@@ -149,6 +205,33 @@ def update_book(book_id: int, book: BookCreate, db: Session = Depends(get_db), a
         "date": book_entry.date,
         "location": book_entry.location,
         "description": book_entry.description,
+    }
+
+
+@router.put("/{book_id}/set-current")
+def set_current_book(
+    book_id: int,
+    db: Session = Depends(get_db),
+    admin_user: User = Depends(require_admin_role),
+):
+    """Установить книгу как текущую книгу месяца (только админ)."""
+    book = db.query(BookOfMonth).filter(BookOfMonth.id == book_id).first()
+    if not book:
+        raise HTTPException(status_code=404, detail="Книга не найдена")
+
+    # Снимаем флаг is_current со всех книг
+    db.query(BookOfMonth).update({BookOfMonth.is_current: 0})
+    
+    # Устанавливаем флаг is_current для выбранной книги
+    book.is_current = 1
+    db.commit()
+    db.refresh(book)
+
+    return {
+        "message": f"Книга '{book.title}' установлена как текущая книга месяца",
+        "id": book.id,
+        "title": book.title,
+        "is_current": True,
     }
 
 

@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="NartBooks — книжный клуб для любителей чтения и интеллектуального диалога">
+    <title>NartBooks — Книжный клуб</title>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <!-- Навигация -->
+    <nav style="background: var(--color-bg-secondary); padding: var(--spacing-md) 0; border-bottom: 1px solid var(--color-border-light); position: sticky; top: 0; z-index: 100;">
+        <div class="container" style="display: flex; justify-content: space-between; align-items: center;">
+            <a href="index.html" style="font-family: var(--font-serif); font-size: var(--font-size-xl); color: var(--color-text-primary); text-decoration: none;">NartBooks</a>
+            <div id="navLinks" style="display: flex; gap: var(--spacing-lg); align-items: center;">
+                <a href="profile.html" id="profileLink" class="hidden" style="color: var(--color-text-secondary); text-decoration: none; font-size: var(--font-size-base); display: flex; align-items: center; gap: var(--spacing-xs);">
+                    <span>👤</span>
+                    <span>Личный кабинет</span>
+                </a>
+                <a href="admin.html" id="adminLink" class="hidden" style="color: var(--color-text-secondary); text-decoration: none; font-size: var(--font-size-base);">Админ</a>
+                <a href="auth.html" id="authLink" style="color: var(--color-accent); text-decoration: none; font-size: var(--font-size-base); font-weight: 500;">Войти</a>
+                <button id="logoutBtn" class="hidden btn btn-secondary btn-sm" style="border: none; background: transparent; color: var(--color-text-secondary);">Выйти</button>
+            </div>
+        </div>
+    </nav>
+    <!-- Hero-блок -->
+    <section class="hero">
+        <div class="container">
+            <h1 class="hero-title">NartBooks</h1>
+            <p class="hero-subtitle">Путь к книгам, путь к диалогу</p>
+            <p class="hero-description">Присоединяйтесь к сообществу читателей, где каждая книга открывает новые горизонты</p>
+            <a href="#join-form" class="btn btn-primary">Присоединиться</a>
+        </div>
+    </section>
+
+    <!-- О клубе -->
+    <section class="about">
+        <div class="container">
+            <h2 class="section-title">О клубе</h2>
+            <div class="about-content">
+                <p class="about-text">
+                    NartBooks — это книжный клуб, где чтение становится путешествием, а обсуждение книг — диалогом между умами и сердцами.
+                </p>
+                <div class="about-name">
+                    <h3>Происхождение названия</h3>
+                    <p>
+                        Название образовано от слова «нарты» — героев кавказского эпоса, символизирующих путь, традицию и общность. 
+                        Как нарты шли вместе, преодолевая препятствия, так и мы вместе открываем новые миры через книги.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Книга месяца -->
+    <section class="book-of-month">
+        <div class="container">
+            <h2 class="section-title">Книга месяца</h2>
+            <div id="current-book" class="book-card">
+                <div class="book-loading">
+                    <div class="spinner"></div>
+                    <p>Загрузка...</p>
+                </div>
+                <div class="book-error hidden">
+                    <p>Не удалось загрузить книгу месяца</p>
+                    <button class="btn btn-secondary" onclick="loadCurrentBook()">Попробовать снова</button>
+                </div>
+                <div class="book-content hidden">
+                    <div class="book-cover">
+                        <div class="book-cover-placeholder">
+                            <svg width="120" height="180" viewBox="0 0 120 180" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <rect width="120" height="180" fill="#E8E3DB"/>
+                                <path d="M30 60L60 45L90 60V150L60 165L30 150V60Z" fill="#D4C4B0"/>
+                                <line x1="60" y1="45" x2="60" y2="165" stroke="#8B7355" stroke-width="2"/>
+                            </svg>
+                        </div>
+                    </div>
+                    <div class="book-info">
+                        <h3 class="book-title"></h3>
+                        <p class="book-author"></p>
+                        <p class="book-description"></p>
+                        <div class="book-meta">
+                            <span class="book-date"></span>
+                            <span class="book-location"></span>
+                            <span class="book-participants"></span>
+                        </div>
+                        <div id="book-actions" class="book-actions" style="margin-top: var(--spacing-lg);">
+                            <!-- Для авторизованных пользователей -->
+                            <div id="authActions" class="hidden">
+                                <button id="registerMeetingBtn" class="btn btn-primary" style="display: none;">
+                                    <span class="btn-text">📝 Записаться на встречу</span>
+                                    <span class="btn-spinner hidden"></span>
+                                </button>
+                                <button id="cancelMeetingBtn" class="btn btn-secondary" style="display: none;">
+                                    <span class="btn-text">❌ Отменить запись</span>
+                                    <span class="btn-spinner hidden"></span>
+                                </button>
+                                <p id="registration-status" style="margin-top: var(--spacing-sm); font-size: var(--font-size-sm); color: var(--color-text-light);"></p>
+                            </div>
+                            <!-- Для неавторизованных пользователей -->
+                            <div id="guestActions" style="padding: var(--spacing-md); background: var(--color-bg-secondary); border-radius: var(--radius-md); border-left: 3px solid var(--color-accent);">
+                                <p style="margin: 0 0 var(--spacing-sm); color: var(--color-text-primary); font-weight: 500;">
+                                    💡 Хотите записаться на встречу?
+                                </p>
+                                <p style="margin: 0 0 var(--spacing-md); color: var(--color-text-secondary); font-size: var(--font-size-sm);">
+                                    Войдите в систему, чтобы записаться на встречу и получить доступ к личному кабинету
+                                </p>
+                                <a href="auth.html?redirect=index.html" class="btn btn-primary btn-sm">
+                                    Войти в систему
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Встречи / События -->
+    <section class="events">
+        <div class="container">
+            <h2 class="section-title">Встречи и события</h2>
+            <div id="events-list" class="events-grid">
+                <div class="events-loading">
+                    <div class="spinner"></div>
+                    <p>Загрузка событий...</p>
+                </div>
+                <div class="events-error hidden">
+                    <p>Не удалось загрузить события</p>
+                    <button class="btn btn-secondary" onclick="loadEvents()">Попробовать снова</button>
+                </div>
+                <div class="events-content hidden">
+                    <!-- События будут добавлены динамически -->
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Форма вступления -->
+    <section id="join-form" class="join-form">
+        <div class="container">
+            <h2 class="section-title">Присоединиться к клубу</h2>
+            <p class="form-description">Заполните анкету, чтобы стать участником нашего книжного клуба</p>
+            
+            <form id="registration-form" class="registration-form">
+                <!-- Основная информация -->
+                <div class="form-group">
+                    <h3 class="form-group-title">Основная информация</h3>
+                    <div class="form-row">
+                        <div class="form-field">
+                            <label for="name">Имя *</label>
+                            <input type="text" id="name" name="name" required placeholder="Иван Иванов">
+                            <span class="field-error"></span>
+                        </div>
+                        <div class="form-field">
+                            <label for="email">Email *</label>
+                            <input type="email" id="email" name="email" required placeholder="example@mail.com">
+                            <span class="field-error"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Любимые жанры -->
+                <div class="form-group">
+                    <h3 class="form-group-title">Три любимых жанра *</h3>
+                    <div class="form-row form-row-triple">
+                        <div class="form-field">
+                            <input type="text" name="genre1" required placeholder="Например: Роман">
+                            <span class="field-error"></span>
+                        </div>
+                        <div class="form-field">
+                            <input type="text" name="genre2" required placeholder="Например: Детектив">
+                            <span class="field-error"></span>
+                        </div>
+                        <div class="form-field">
+                            <input type="text" name="genre3" required placeholder="Например: Фантастика">
+                            <span class="field-error"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Любимые авторы -->
+                <div class="form-group">
+                    <h3 class="form-group-title">Три любимых автора *</h3>
+                    <div class="form-row form-row-triple">
+                        <div class="form-field">
+                            <input type="text" name="author1" required placeholder="Например: Лев Толстой">
+                            <span class="field-error"></span>
+                        </div>
+                        <div class="form-field">
+                            <input type="text" name="author2" required placeholder="Например: Фёдор Достоевский">
+                            <span class="field-error"></span>
+                        </div>
+                        <div class="form-field">
+                            <input type="text" name="author3" required placeholder="Например: Антон Чехов">
+                            <span class="field-error"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Любимые книги -->
+                <div class="form-group">
+                    <h3 class="form-group-title">Три любимые книги *</h3>
+                    <div class="form-row form-row-triple">
+                        <div class="form-field">
+                            <input type="text" name="book1" required placeholder="Например: Война и мир">
+                            <span class="field-error"></span>
+                        </div>
+                        <div class="form-field">
+                            <input type="text" name="book2" required placeholder="Например: Преступление и наказание">
+                            <span class="field-error"></span>
+                        </div>
+                        <div class="form-field">
+                            <input type="text" name="book3" required placeholder="Например: Анна Каренина">
+                            <span class="field-error"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Книги для обсуждения -->
+                <div class="form-group">
+                    <h3 class="form-group-title">Три книги, которые вы хотели бы обсудить в клубе *</h3>
+                    <div class="form-row form-row-triple">
+                        <div class="form-field">
+                            <input type="text" name="discuss1" required placeholder="Например: 1984">
+                            <span class="field-error"></span>
+                        </div>
+                        <div class="form-field">
+                            <input type="text" name="discuss2" required placeholder="Например: Мастер и Маргарита">
+                            <span class="field-error"></span>
+                        </div>
+                        <div class="form-field">
+                            <input type="text" name="discuss3" required placeholder="Например: Сто лет одиночества">
+                            <span class="field-error"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Сообщения об успехе/ошибке -->
+                <div id="form-message" class="form-message hidden"></div>
+
+                <!-- Кнопка отправки -->
+                <div class="form-submit">
+                    <button type="submit" class="btn btn-primary btn-large">
+                        <span class="btn-text">Отправить заявку</span>
+                        <span class="btn-spinner hidden"></span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </section>
+
+    <!-- Подвал -->
+    <footer class="footer">
+        <div class="container">
+            <p>&copy; 2024 NartBooks. Книжный клуб для любителей чтения.</p>
+        </div>
+    </footer>
+
+    <script src="js/api.js"></script>
+    <script src="js/form.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>

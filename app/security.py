@@ -22,8 +22,8 @@ def create_access_token(user_id: int, user_role: str) -> str:
     payload = {
         "user_id": user_id,
         "role": user_role,
-        "iat": now,
-        "exp": expire,
+        "iat": int(now.timestamp()),  # PyJWT 2.x требует timestamp (int)
+        "exp": int(expire.timestamp()),  # PyJWT 2.x требует timestamp (int)
     }
     token = jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
     return token
@@ -35,8 +35,11 @@ def verify_token(token: str) -> dict:
         return payload
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Токен истек")
-    except jwt.JWTError:
+    except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Неверный токен")
+    except Exception as e:
+        # Обработка других ошибок JWT
+        raise HTTPException(status_code=401, detail=f"Ошибка проверки токена: {str(e)}")
 
 
 def cleanup_old_codes(db: Session) -> None:

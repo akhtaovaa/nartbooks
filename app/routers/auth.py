@@ -9,9 +9,11 @@ from sqlalchemy.orm import Session
 
 from ..config import JWT_EXPIRATION_HOURS, MSG_OVRX_BASE_URL, MSG_OVRX_API_KEY
 from ..dependencies import get_db
+from ..enums import UserRole
 from ..models import AuthCode, AuthToken, User
 from ..schemas import AuthRequest, AuthVerify
 from ..security import cleanup_old_codes, create_access_token, generate_verification_code
+from fastapi import HTTPException
 
 router = APIRouter(prefix="/auth", tags=["Авторизация"])
 
@@ -33,36 +35,55 @@ def send_auth_code(req: AuthRequest, db: Session = Depends(get_db)):
     code = generate_verification_code()
     payload = {"email": req.email, "code": code} if req.email else {"phone": req.phone, "code": code}
 
-    try:
-        endpoint = "email" if req.email else "sms"
-        headers = {}
-        if MSG_OVRX_API_KEY and MSG_OVRX_API_KEY != "ТВОЙ_API_КЛЮЧ":
-            headers["Authorization"] = f"Bearer {MSG_OVRX_API_KEY}"
-            headers["X-API-Key"] = MSG_OVRX_API_KEY
-        
-        response = requests.post(
-            f"{MSG_OVRX_BASE_URL}/auth-code/{endpoint}",
-            json=payload,
-            headers=headers,
-            timeout=10
-        )
-        response.raise_for_status()
-    except requests.exceptions.Timeout:
-        raise HTTPException(status_code=500, detail="Таймаут при отправке кода. Попробуйте позже.")
-    except requests.exceptions.ConnectionError:
-        raise HTTPException(status_code=500, detail="Не удалось подключиться к сервису отправки. Проверьте подключение к интернету.")
-    except requests.exceptions.HTTPError as e:
-        error_detail = f"Ошибка сервиса отправки: {e.response.status_code}"
+    # Проверяем, включен ли режим разработки (когда API ключ не настроен)
+    dev_mode = not MSG_OVRX_API_KEY or MSG_OVRX_API_KEY == "ТВОЙ_API_КЛЮЧ" or MSG_OVRX_API_KEY == "your_api_key_here"
+    
+    if not dev_mode:
         try:
-            error_data = e.response.json()
-            if "detail" in error_data:
-                error_detail = error_data["detail"]
-        except:
-            pass
-        raise HTTPException(status_code=500, detail=error_detail)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Ошибка при отправке кода: {str(exc)}")
+            endpoint = "email" if req.email else "sms"
+            headers = {}
+            if MSG_OVRX_API_KEY:
+                headers["Authorization"] = f"Bearer {MSG_OVRX_API_KEY}"
+                headers["X-API-Key"] = MSG_OVRX_API_KEY
+            
+            response = requests.post(
+                f"{MSG_OVRX_BASE_URL}/auth-code/{endpoint}",
+                json=payload,
+                headers=headers,
+                timeout=10
+            )
+            response.raise_for_status()
+        except requests.exceptions.Timeout:
+            # В режиме разработки сохраняем код даже при ошибке отправки
+            if dev_mode:
+                pass
+            else:
+                raise HTTPException(status_code=500, detail="Таймаут при отправке кода. Попробуйте позже.")
+        except requests.exceptions.ConnectionError:
+            # В режиме разработки сохраняем код даже при ошибке отправки
+            if dev_mode:
+                pass
+            else:
+                raise HTTPException(status_code=500, detail="Не удалось подключиться к сервису отправки. Проверьте подключение к интернету.")
+        except requests.exceptions.HTTPError as e:
+            # Если ошибка 502 или другая ошибка сервиса, в режиме разработки продолжаем
+            if dev_mode or e.response.status_code in [502, 503, 504]:
+                pass
+            else:
+                error_detail = f"Ошибка сервиса отправки: {e.response.status_code}"
+                try:
+                    error_data = e.response.json()
+                    if "detail" in error_data:
+                        error_detail = error_data["detail"]
+                except:
+                    pass
+                raise HTTPException(status_code=500, detail=error_detail)
+        except Exception as exc:
+            # В режиме разработки продолжаем даже при других ошибках
+            if not dev_mode:
+                raise HTTPException(status_code=500, detail=f"Ошибка при отправке кода: {str(exc)}")
 
+    # Сохраняем код в базе данных (всегда, даже если отправка не удалась)
     auth_code = AuthCode(
         identifier=identifier,
         code=code,
@@ -73,6 +94,15 @@ def send_auth_code(req: AuthRequest, db: Session = Depends(get_db)):
     db.commit()
 
     last_sent[identifier] = datetime.now()
+    
+    # В режиме разработки возвращаем код в ответе
+    if dev_mode:
+        return {
+            "message": "Код создан (режим разработки). Сервис отправки недоступен.",
+            "code": code,  # Возвращаем код для режима разработки
+            "dev_mode": True
+        }
+    
     return {"message": "Код отправлен успешно"}
 
 
@@ -97,8 +127,16 @@ def verify_auth_code(req: AuthVerify, db: Session = Depends(get_db)):
     auth_code.is_used = 1
     db.commit()
 
-    user = db.query(User).filter((User.email == req.email) | (User.phone == req.phone)).first()
+    # Ищем пользователя по email или phone
+    # ВАЖНО: используем req.email или req.phone напрямую, не identifier
+    user = None
+    if req.email:
+        user = db.query(User).filter(User.email == req.email).first()
+    elif req.phone:
+        user = db.query(User).filter(User.phone == req.phone).first()
+    
     if not user:
+        # Создаём нового пользователя с ролью user
         user = User(
             first_name="",
             last_name="",
@@ -107,13 +145,42 @@ def verify_auth_code(req: AuthVerify, db: Session = Depends(get_db)):
             fav_authors="",
             fav_genres="",
             fav_books="",
-            discuss_books="",
+            wanted_books="",  # Используем wanted_books из БД
+            role=UserRole.USER.value,  # Явно устанавливаем роль user для новых пользователей
         )
         db.add(user)
         db.commit()
         db.refresh(user)
-
-    access_token = create_access_token(user.id, user.role)
+    
+    # КРИТИЧЕСКАЯ ПРОВЕРКА: убеждаемся, что это правильный пользователь
+    # и что роль корректна
+    if req.email and user.email != req.email:
+        raise HTTPException(status_code=500, detail="Ошибка: найден неправильный пользователь")
+    if req.phone and user.phone != req.phone:
+        raise HTTPException(status_code=500, detail="Ошибка: найден неправильный пользователь")
+    
+    # Убеждаемся, что роль установлена и корректна
+    user_role = user.role if user.role and user.role.strip() else UserRole.USER.value
+    
+    # ДОПОЛНИТЕЛЬНАЯ ЗАЩИТА: если пользователь не является явно админом, устанавливаем user
+    # Проверяем email - только определённые адреса могут быть админами
+    admin_emails = ['admin@nartbooks.com', 'admin@nartbooks.local']
+    if user.email.lower() not in [e.lower() for e in admin_emails]:
+        # Если email не в списке админов, принудительно устанавливаем роль user
+        if user_role.lower() != 'user':
+            user_role = UserRole.USER.value
+            user.role = user_role
+            db.commit()
+            db.refresh(user)
+    
+    # Дополнительная проверка: если роль не admin и не user, устанавливаем user
+    if user_role.lower() not in ['admin', 'user']:
+        user_role = UserRole.USER.value
+        user.role = user_role
+        db.commit()
+        db.refresh(user)
+    
+    access_token = create_access_token(user.id, user_role)
 
     now = datetime.now()
     expires_at = now + timedelta(hours=JWT_EXPIRATION_HOURS)
