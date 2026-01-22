@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="NartBooks — Личный кабинет">
+    <title>Личный кабинет — NartBooks</title>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <!-- Hero-блок -->
+    <section class="hero hero-admin">
+        <div class="container">
+            <h1 class="hero-title">Личный кабинет</h1>
+            <p class="hero-subtitle">Ваш профиль и записанные встречи</p>
+        </div>
+    </section>
+
+    <!-- Основная информация -->
+    <section class="join-form">
+        <div class="container">
+            <div id="profileContainer" class="admin-list">
+                <div class="spinner"></div>
+                <p>Загрузка...</p>
+            </div>
+
+            <!-- Записанные встречи -->
+            <div id="meetingsSection" class="hidden" style="margin-top: var(--spacing-2xl);">
+                <h2 class="section-title">Мои встречи</h2>
+                <div id="meetingsList" class="admin-list">
+                    <div class="spinner"></div>
+                    <p>Загрузка...</p>
+                </div>
+            </div>
+
+            <!-- Форма редактирования -->
+            <div id="editFormSection" class="admin-form-section hidden">
+                <div class="admin-form-card">
+                    <h3 class="admin-form-title">Редактировать профиль</h3>
+                    <form id="profileForm" class="admin-form">
+                        <div class="form-group">
+                            <h3 class="form-group-title">Основная информация</h3>
+                            <div class="form-row">
+                                <div class="form-field">
+                                    <label for="firstNameInput">Имя *</label>
+                                    <input type="text" id="firstNameInput" required>
+                                    <span class="field-error"></span>
+                                </div>
+                                <div class="form-field">
+                                    <label for="lastNameInput">Фамилия *</label>
+                                    <input type="text" id="lastNameInput" required>
+                                    <span class="field-error"></span>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-field">
+                                    <label for="phoneInput">Телефон</label>
+                                    <input type="tel" id="phoneInput" placeholder="+7XXXXXXXXXX">
+                                    <span class="field-error"></span>
+                                </div>
+                                <div class="form-field">
+                                    <label for="birthDateInput">Дата рождения</label>
+                                    <input type="date" id="birthDateInput">
+                                    <span class="field-error"></span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <h3 class="form-group-title">Любимые авторы</h3>
+                            <div class="form-field">
+                                <input type="text" id="favAuthorsInput" placeholder="Автор 1, Автор 2, Автор 3">
+                                <span class="field-error"></span>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <h3 class="form-group-title">Любимые жанры</h3>
+                            <div class="form-field">
+                                <input type="text" id="favGenresInput" placeholder="Жанр 1, Жанр 2, Жанр 3">
+                                <span class="field-error"></span>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <h3 class="form-group-title">Любимые книги</h3>
+                            <div class="form-field">
+                                <input type="text" id="favBooksInput" placeholder="Книга 1, Книга 2, Книга 3">
+                                <span class="field-error"></span>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <h3 class="form-group-title">Книги для обсуждения</h3>
+                            <div class="form-field">
+                                <input type="text" id="discussBooksInput" placeholder="Книга 1, Книга 2, Книга 3">
+                                <span class="field-error"></span>
+                            </div>
+                        </div>
+
+                        <div id="profileStatus" class="form-message hidden"></div>
+
+                        <div class="form-submit">
+                            <button type="submit" class="btn btn-primary btn-large">
+                                <span class="btn-text">Сохранить изменения</span>
+                                <span class="btn-spinner hidden"></span>
+                            </button>
+                            <button type="button" class="btn btn-secondary" id="cancelEditBtn">Отмена</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <script src="js/api.js"></script>
+    <script src="js/profile.js"></script>
+</body>
+</html>

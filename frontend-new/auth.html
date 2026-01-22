@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="NartBooks — Вход в систему">
+    <title>Вход — NartBooks</title>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <!-- Hero-блок -->
+    <section class="hero hero-admin">
+        <div class="container">
+            <h1 class="hero-title">Вход в систему</h1>
+            <p class="hero-subtitle">Введите email или телефон для получения кода подтверждения</p>
+        </div>
+    </section>
+
+    <!-- Форма авторизации -->
+    <section class="join-form">
+        <div class="container">
+            <div class="registration-form" style="max-width: 600px;">
+                <!-- Шаг 1: Ввод email/телефона -->
+                <div id="stepSend" class="auth-step">
+                    <div class="form-group">
+                        <h3 class="form-group-title">Email или телефон</h3>
+                        <div class="form-row">
+                            <div class="form-field">
+                                <label for="emailInput">Email</label>
+                                <input type="email" id="emailInput" placeholder="example@mail.com" autocomplete="email">
+                                <span class="field-error"></span>
+                            </div>
+                        </div>
+                        <div style="text-align: center; margin: var(--spacing-md) 0; position: relative;">
+                            <span style="background: var(--color-bg-card); padding: 0 var(--spacing-sm); color: var(--color-text-light); font-size: var(--font-size-sm);">или</span>
+                            <hr style="position: absolute; top: 50%; left: 0; right: 0; margin: 0; border: none; border-top: 1px solid var(--color-border-light); z-index: -1;">
+                        </div>
+                        <div class="form-row">
+                            <div class="form-field">
+                                <label for="phoneInput">Телефон</label>
+                                <input type="tel" id="phoneInput" placeholder="+7 (999) 123-45-67" autocomplete="tel">
+                                <span class="field-error"></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="sendStatus" class="form-message hidden"></div>
+
+                    <div class="form-submit">
+                        <button type="button" class="btn btn-primary btn-large" id="sendCodeBtn">
+                            <span class="btn-text">Отправить код</span>
+                            <span class="btn-spinner hidden"></span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Шаг 2: Ввод кода -->
+                <div id="stepVerify" class="auth-step hidden">
+                    <div class="form-group">
+                        <div id="codeMessage" class="form-message success" style="margin-bottom: var(--spacing-lg);">
+                            <strong>✉️ Код отправлен!</strong><br>
+                            Мы отправили код подтверждения на указанный email или телефон. Введите его ниже:
+                        </div>
+                        
+                        <!-- Блок с кодом для режима разработки -->
+                        <div id="devCodeBlock" style="display: none; background: #fff3cd; border: 2px solid #ffc107; border-radius: 12px; padding: 20px; margin-bottom: var(--spacing-lg); text-align: center;">
+                            <div style="font-size: 18px; font-weight: 600; color: #856404; margin-bottom: 12px;">
+                                ⚠️ Режим разработки
+                            </div>
+                            <div style="font-size: 14px; color: #856404; margin-bottom: 16px;">
+                                Сервис отправки недоступен. Используйте этот код:
+                            </div>
+                            <div id="devCodeDisplay" style="font-size: 36px; font-weight: 700; letter-spacing: 8px; color: #8B4A5C; font-family: 'Courier New', monospace; background: white; padding: 16px; border-radius: 8px; border: 2px solid #8B4A5C; margin: 12px 0;">
+                                000000
+                            </div>
+                            <div style="font-size: 12px; color: #856404; margin-top: 12px;">
+                                Код автоматически заполнен в поле ниже
+                            </div>
+                        </div>
+                        
+                        <h3 class="form-group-title">Код подтверждения</h3>
+                        <div class="form-row">
+                            <div class="form-field">
+                                <input type="text" id="codeInput" maxlength="10" placeholder="000000" 
+                                       style="text-align: center; font-size: 28px; letter-spacing: 8px; font-weight: 600; padding: var(--spacing-md);">
+                                <span class="field-error"></span>
+                            </div>
+                        </div>
+                        <p style="text-align: center; color: var(--color-text-light); font-size: var(--font-size-sm); margin-top: var(--spacing-xs);">
+                            Введите 6-значный код из сообщения
+                        </p>
+                    </div>
+
+                    <div id="verifyStatus" class="form-message hidden"></div>
+
+                    <div class="form-submit">
+                        <button type="button" class="btn btn-primary btn-large" id="verifyCodeBtn">
+                            <span class="btn-text">Подтвердить код</span>
+                            <span class="btn-spinner hidden"></span>
+                        </button>
+                        <button type="button" class="btn btn-secondary" id="resendCodeBtn" style="display: none;">
+                            Отправить код повторно
+                        </button>
+                    </div>
+
+                    <div id="timer" style="text-align: center; margin-top: var(--spacing-md); color: var(--color-text-light); font-size: var(--font-size-sm);"></div>
+                </div>
+
+                <div style="margin-top: var(--spacing-xl); padding-top: var(--spacing-lg); border-top: 1px solid var(--color-border-light); text-align: center;">
+                    <p style="color: var(--color-text-light); margin: 0;">
+                        Нет аккаунта? <a href="index.html#join-form" style="color: var(--color-accent); font-weight: 500;">Зарегистрироваться</a>
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <script src="js/api.js" onerror="console.error('Ошибка загрузки api.js')"></script>
+    <script>
+        // Проверка загрузки API после загрузки скрипта
+        (function checkAPI() {
+            if (typeof window.api === 'undefined') {
+                console.error('API не загружен! Проверьте загрузку js/api.js');
+                setTimeout(checkAPI, 100);
+                return;
+            }
+            
+            if (!window.api.sendAuthCode || !window.api.verifyAuthCode) {
+                console.error('Функции авторизации не найдены в window.api');
+                console.log('Доступные функции:', Object.keys(window.api));
+                setTimeout(checkAPI, 100);
+                return;
+            }
+            
+            console.log('✅ API загружен успешно');
+        })();
+    </script>
+    <script src="js/auth.js" onerror="console.error('Ошибка загрузки auth.js')"></script>
+</body>
+</html>
